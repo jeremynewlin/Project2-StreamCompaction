@@ -6,6 +6,13 @@
 
 #include "streamCompaction.h"
 
+void checkCUDAError(const char *msg) {
+  cudaError_t err = cudaGetLastError();
+  if( cudaSuccess != err) {
+    fprintf(stderr, "Cuda error: %s: %s.\n", msg, cudaGetErrorString( err) ); 
+  }
+} 
+
 __global__ void sum(int* in, int* out, int n, int d1){
   int k = (blockIdx.x * blockDim.x) + threadIdx.x;
   
@@ -20,13 +27,51 @@ __global__ void sum(int* in, int* out, int n, int d1){
   }
 }
 
-__global__ void shift(int* in, int* out, int n){
-  int k = (blockIdx.x * blockDim.x) + threadIdx.x;
-  
-  out[0] = 0;
-  if (k<n && k>0){
-    out[k] = in[k-1];
+__global__ void test(int* in, int* out, int n){
+
+  extern __shared__ float temp[];
+  int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+  int offset = 1;
+
+  if (2*index+1<=n){
+    temp[2*index] = in[2*index];
+    temp[2*index+1] = in[2*index+1];
+
+    for (int d = n>>1; d>0; d >>= 1){
+    //for (int d=0; d<floor(log(float(n-1)/log(2.0f))); d+=1){
+      __syncthreads();
+      if (index < d){
+        int ai = offset * (2*index+1) - 1;
+        int bi = offset * (2*index+2) - 1;
+
+        temp[bi] += temp[ai];
+      }
+      offset *= 2;
+    }
+
+    if (index == 0) temp[n - 1] = 0;
+
+    for (int d = 1; d<n; d*=2){
+      offset >>= 1;
+      __syncthreads();
+      if (index < d){
+
+        int ai = offset * (2*index+1) - 1;
+        int bi = offset * (2*index+2) - 1;
+
+        if (ai < n && bi < n){
+          float t = temp[ai];
+          temp[ai] = temp[bi];
+          temp[bi] += t;
+        }
+      }
+    }
+    __syncthreads();
+
+    out[2*index] = temp[2*index];
+    out[2*index+1] = temp[2*index+1];
   }
+
 }
 
 __global__ void streamCompaction(dataPacket* inRays, int* indices, dataPacket* outRays, int numElements){
@@ -180,25 +225,36 @@ DataStream::~DataStream(){
 }
 
 void DataStream::compact(){
-  dim3 threadsPerBlockL(64);
-  dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/64.0f)));
 
-  // scan algorithm
-    for (int d=1; d<=ceil(log(m_numElementsAlive)/log(2)); d++){
-      sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive, powf(2.0f, d-1));
-      int* temp = cudaIndicesA;
-      cudaIndicesA = cudaIndicesB;
-      cudaIndicesB = temp;
-    }
+  int numElements = m_numElementsAlive;
+  int threadsPerBlock = 64;
+  int procsPefBlock = threadsPerBlock*2;
 
-    //Stream compation from A into B, then save back into A
-    streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, cudaDataB, m_numElementsAlive);
-    dataPacket * temp = cudaDataA;
-    cudaDataA = cudaDataB;
-    cudaDataB = temp;
+  dim3 initialScanThreadsPerBlock(threadsPerBlock/2);
+  dim3 initialScanBlocksPerGrid(numElements/threadsPerBlock);
 
-    // update numrays
-    cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
+  dim3 threadsPerBlockL(threadsPerBlock);
+  dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
+
+  // // scan algorithm
+  //   for (int d=1; d<=ceil(log(m_numElementsAlive)/log(2)); d++){
+  //     sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive, powf(2.0f, d-1));
+  //     int* temp = cudaIndicesA;
+  //     cudaIndicesA = cudaIndicesB;
+  //     cudaIndicesB = temp;
+  //   }
+
+    test<<<fullBlocksPerGridL, threadsPerBlockL, m_numElementsAlive*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive);
+    checkCUDAError("kernel failed!");
+    cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+    // //Stream compation from A into B, then save back into A
+    // streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, cudaDataB, m_numElementsAlive);
+    // dataPacket * temp = cudaDataA;
+    // cudaDataA = cudaDataB;
+    // cudaDataB = temp;
+
+    // // update numrays
+    // cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
 }
 
 bool DataStream::getData(int index, dataPacket& data){

@@ -38,8 +38,36 @@ void naive(){
 	}
 }
 
+void test(){
+	int numElements = 16;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+
+	ds.compact();
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+}
+
 int main(){
 	//testStreamCompaction();
 	srand (time(NULL));
+	test ();
 	return 0;
 }
