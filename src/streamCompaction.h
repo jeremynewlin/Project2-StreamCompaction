@@ -15,7 +15,7 @@
 #include <time.h>
 #include <map>
 
-#define THREADS_PER_BLOCK 64
+#define THREADS_PER_BLOCK 8
 
 struct dataPacket{
 	int index;
@@ -35,7 +35,7 @@ private:
 
 	dataPacket * m_data;
 
-	int m_numElementsAlive, m_numElements;
+	
 
 	dataPacket * cudaDataA;
 	dataPacket * cudaDataB;
@@ -46,12 +46,19 @@ private:
 	int * cudaAuxSums;
 	int * cudaAuxIncs;
 
+	void globalSum(int* in, int* out, int n);
+
 public:
 	int * m_indices;
 	int * m_auxSums;
 
+	int m_numElementsAlive, m_numElements;
+
 	DataStream(int numElements, dataPacket * data);
 	~DataStream();
+
+	void serialScan();
+	void serialScatter();
 
 	void compactWorkEfficientArbitrary();
 	void compactNaiveSumGlobal();

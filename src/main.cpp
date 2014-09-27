@@ -5,6 +5,27 @@
 
 using namespace std;
 
+void serialSum(){
+	int numElements = 256;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	ds.serialScan();
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+}
+
 void naive(){
 	int numElements = 25;
 
@@ -39,7 +60,34 @@ void naive(){
 }
 
 void naiveSumGlobal(){
-	int numElements = 256;
+	int numElements = 40;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<ds.m_numElements<<" streams"<<endl;
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+
+	ds.compactNaiveSumGlobal();
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+}
+
+void naiveCompactGlobal(){
+	int numElements = 33;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -50,13 +98,27 @@ void naiveSumGlobal(){
 
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
-	ds.compactNaiveSumGlobal();
+	int bound = 0;
+	while(ds.numAlive () > 0 && bound < 1){
+		int toKill = rand() % ds.numAlive();
+		toKill = 10;
+		ds.kill(toKill);
+		ds.compactNaiveSumGlobal ();
 
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
-		if (i<ds.numAlive()-1) cout<<",";
+		dataPacket cur;
+		ds.getData(toKill, cur);
+		cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+
+		ds.fetchDataFromGPU();
+
+		for (int i=0; i<ds.numAlive(); i+=1){
+			ds.getData(i, cur);
+			cout<<cur.index;
+			if (i<ds.numAlive()-1) cout<<",";
+		}
+		cout<<endl<<endl;
+		bound+=1;
 	}
-	cout<<endl;
 }
 
 void naiveSumSharedSingleBlock(){
@@ -81,6 +143,49 @@ void naiveSumSharedSingleBlock(){
 }
 
 void naiveSumSharedArbitrary(){
+	int numElements = 34;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	int toKill = 32;
+	ds.kill(toKill);
+
+	dataPacket cur;
+	ds.getData(toKill, cur);
+	cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+
+	// for (int i=0; i<ds.numAlive(); i+=1){
+		// cout<<ds.m_indices[i];
+		// if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
+
+
+	ds.compactNaiveSumSharedArbitrary();
+	//ds.compactNaiveSumGlobal();
+
+	// for (int i=0; i<ds.numAlive(); i+=1){
+	// 	cout<<ds.m_indices[i];
+	// 	if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
+
+	// for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+	// 	cout<<ds.m_auxSums[i];
+	// 	if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
+
+}
+
+void naiveCompactSharedArbitrary(){
 	int numElements = 33;
 
 	dataPacket * ints = new dataPacket[numElements];
@@ -92,19 +197,27 @@ void naiveSumSharedArbitrary(){
 
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
-	ds.compactNaiveSumSharedArbitrary();
+	int bound = 0;
+	while(ds.numAlive () > 0 && bound < 10){
+		int toKill = rand() % ds.numAlive();
+		// toKill = 10;
+		ds.kill(toKill);
+		ds.compactNaiveSumSharedArbitrary ();
 
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
-		if (i<ds.numAlive()-1) cout<<",";
-	}
-	cout<<endl;
+		dataPacket cur;
+		ds.getData(toKill, cur);
+		cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
 
-	for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
-		cout<<ds.m_auxSums[i];
-		if (i<ds.numAlive()-1) cout<<",";
+		ds.fetchDataFromGPU();
+
+		for (int i=0; i<ds.numAlive(); i+=1){
+			ds.getData(i, cur);
+			cout<<cur.index;
+			if (i<ds.numAlive()-1) cout<<",";
+		}
+		cout<<endl<<endl;
+		bound+=1;
 	}
-	cout<<endl;
 }
 
 void workEfficientArbitrary(){
@@ -143,6 +256,7 @@ void workEfficientArbitrary(){
 int main(){
 	//testStreamCompaction();
 	srand (time(NULL));
-	workEfficientArbitrary ();
+	// naiveCompactGlobal ();
+	naiveCompactSharedArbitrary ();
 	return 0;
 }
