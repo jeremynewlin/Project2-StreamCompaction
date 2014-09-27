@@ -39,7 +39,7 @@ void naive(){
 }
 
 void test(){
-	int numElements = 32;
+	int numElements = 2048;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){

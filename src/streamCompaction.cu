@@ -329,6 +329,9 @@ void DataStream::compact(){
   dim3 initialScanThreadsPerBlock2(sumSize/2);        //16
   dim3 initialScanBlocksPerGrid2(sumSize/(sumSize/2)+1);//1024/16
 
+  dim3 initialScanThreadsPerBlock3(procsPefBlock);        //8
+  dim3 initialScanBlocksPerGrid3(numElements/procsPefBlock);//3
+
   dim3 threadsPerBlockL(threadsPerBlock);
   dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
 
@@ -338,7 +341,7 @@ void DataStream::compact(){
   test2<<<initialScanBlocksPerGrid2, initialScanThreadsPerBlock2, m_numElements*sizeof(int)>>>(cudaAuxSums, cudaAuxIncs, sumSize);
   checkCUDAError("kernel failed!");
 
-  addIncs<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
+  addIncs<<<initialScanBlocksPerGrid3, initialScanThreadsPerBlock3>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
   checkCUDAError("kernel failed!");
 
   cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
