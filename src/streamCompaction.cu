@@ -29,7 +29,99 @@ __global__ void sum(int* in, int* out, int n, int d1){
   }
 }
 
-__global__ void test(int* in, int* out, int n){
+__global__ void naiveSumGlobal(int* in, int* out, int n){
+
+  int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  if (index >= n) return;
+
+  for (int offset = 1; offset < n; offset *= 2){
+    int* temp = in;
+    in = out;
+    out = temp;
+
+    if (index >= offset){
+      out[index] = in[index-offset] + in[index];
+    }
+    else{
+      out[index] = in[index]; 
+    }
+    __syncthreads();
+  }
+
+  if (index>0) in[index] = out[index-1];
+  else in[index] = 0;
+
+}
+
+__global__ void naiveSumSharedSingleBlock(int* in, int* out, int n){
+
+  int index = threadIdx.x;
+
+  if (index >= n) return;
+
+  extern __shared__ int shared[];
+  int *tempIn = &shared[0];
+  int *tempOut = &shared[n];
+
+  tempOut[index] = (index > 0) ? in[index-1] : 0;  
+
+  __syncthreads();
+
+  for (int offset = 1; offset < n; offset *= 2){
+    int* temp = tempIn;
+    tempIn = tempOut;
+    tempOut = temp;
+
+    if (index >= offset){
+      tempOut[index] = tempIn[index-offset] + tempIn[index];
+    }
+    else{
+      tempOut[index] = tempIn[index]; 
+    }
+    __syncthreads();
+  }
+  out[index] = tempOut[index];
+}
+
+__global__ void naiveSumSharedArbitrary(int* in, int* out, int n, int* sums=0){
+
+  int localIndex = threadIdx.x;
+  int globalIndex = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  // if (globalIndex >= n) return;
+
+  // out[k] = index; return;
+
+  extern __shared__ int shared[];
+  int *tempIn = &shared[0];
+  int *tempOut = &shared[n];
+
+  // tempOut[localIndex] = (localIndex > 0) ? in[localIndex-1] : 0;  
+  tempOut[localIndex] = in[globalIndex];  
+  
+  __syncthreads();
+
+  for (int offset = 1; offset < n; offset *= 2){
+    int* temp = tempIn;
+    tempIn = tempOut;
+    tempOut = temp;
+
+    if (localIndex >= offset){
+      tempOut[localIndex] = tempIn[localIndex-offset] + tempIn[localIndex];
+    }
+    else{
+      tempOut[localIndex] = tempIn[localIndex]; 
+    }
+    __syncthreads();
+  }
+
+  if (sums) sums[blockIdx.x] = tempOut[n-1];
+  if (localIndex>0) out[globalIndex] = tempOut[localIndex-1];
+  else out[globalIndex] = 0;
+}
+
+__global__ void workEfficientSumSingleBlock(int* in, int* out, int n){
 
   extern __shared__ float temp[];
   int index = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -40,7 +132,6 @@ __global__ void test(int* in, int* out, int n){
     temp[2*index+1] = in[2*index+1];
 
     for (int d = n>>1; d>0; d >>= 1){
-    //for (int d=0; d<floor(log(float(n-1)/log(2.0f))); d+=1){
       __syncthreads();
       if (index < d){
         int ai = offset * (2*index+1) - 1;
@@ -76,7 +167,7 @@ __global__ void test(int* in, int* out, int n){
 
 }
 
-__global__ void test2(int* in, int* out, int n, int* sums=0){
+__global__ void workEfficientArbitrary(int* in, int* out, int n, int* sums=0){
 
   extern __shared__ float temp[];
 
@@ -101,7 +192,7 @@ __global__ void test2(int* in, int* out, int n, int* sums=0){
   }
   
   if (index == 0){
-    if (sums) sums[blockIdx.x] = temp[16-1];
+    if (sums) sums[blockIdx.x] = temp[n-1];
     temp[n - 1] = 0;
   }
 
@@ -259,15 +350,13 @@ DataStream::DataStream(int numElements, dataPacket * data){
   m_data = data;
   m_numElementsAlive = numElements;
 
-  // if (numElements % THREADS_PER_BLOCK*2 != 0){
-  //   int counter = 1;
-  //   while (THREADS_PER_BLOCK*2*counter < numElements){
-  //     counter += 1;
-  //   }
-  //   numElements = THREADS_PER_BLOCK*2*counter;
-  // }
-
-  // cout<<numElements<<endl;
+  if (numElements % (THREADS_PER_BLOCK*2) != 0){
+    int counter = 1;
+    while (THREADS_PER_BLOCK*2*counter < numElements){
+      counter += 1;
+    }
+    numElements = THREADS_PER_BLOCK*2*counter;
+  }
 
   m_numElements = numElements;
 
@@ -315,7 +404,7 @@ DataStream::~DataStream(){
   delete [] m_auxSums;
 }
 
-void DataStream::compact(){
+void DataStream::compactWorkEfficientArbitrary(){
 
   int numElements = m_numElementsAlive;
   int threadsPerBlock = THREADS_PER_BLOCK; // 8
@@ -335,10 +424,10 @@ void DataStream::compact(){
   dim3 threadsPerBlockL(threadsPerBlock);
   dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
 
-  test2<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
+  workEfficientArbitrary<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
   checkCUDAError("kernel failed!");
 
-  test2<<<initialScanBlocksPerGrid2, initialScanThreadsPerBlock2, m_numElements*sizeof(int)>>>(cudaAuxSums, cudaAuxIncs, sumSize);
+  workEfficientArbitrary<<<initialScanBlocksPerGrid2, initialScanThreadsPerBlock2, m_numElements*sizeof(int)>>>(cudaAuxSums, cudaAuxIncs, sumSize);
   checkCUDAError("kernel failed!");
 
   addIncs<<<initialScanBlocksPerGrid3, initialScanThreadsPerBlock3>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
@@ -366,6 +455,65 @@ void DataStream::compact(){
 
     // // update numrays
     // cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
+}
+
+void DataStream::compactNaiveSumGlobal(){
+
+  int threadsPerBlock = THREADS_PER_BLOCK;
+
+  dim3 threadsPerBlockL(threadsPerBlock);
+  dim3 fullBlocksPerGridL(int(ceil(float(m_numElements)/float(threadsPerBlock))));
+
+  naiveSumGlobal<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElements);
+  checkCUDAError("kernel failed!");
+
+  cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+
+}
+
+void DataStream::compactNaiveSumSharedSingleBlock(){
+
+  int threadsPerBlock = THREADS_PER_BLOCK;
+
+  dim3 threadsPerBlockL(threadsPerBlock);
+  dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
+
+  naiveSumSharedSingleBlock<<<fullBlocksPerGridL, threadsPerBlockL, 2*m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, m_numElements);
+  checkCUDAError("kernel failed!");
+
+  cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+
+}
+
+void DataStream::compactNaiveSumSharedArbitrary(){
+
+  int threadsPerBlock = THREADS_PER_BLOCK;
+
+  dim3 threadsPerBlockL(threadsPerBlock*2);
+  dim3 fullBlocksPerGridL(m_numElements/(threadsPerBlock*2));
+
+  naiveSumSharedArbitrary<<<fullBlocksPerGridL, threadsPerBlockL, 2*m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, threadsPerBlock*2, cudaAuxSums);
+  checkCUDAError("kernel failed 1 !");
+
+  int sumSize = m_numElements/(THREADS_PER_BLOCK*2);
+  dim3 initialScanThreadsPerBlock2(threadsPerBlock);        
+  dim3 initialScanBlocksPerGrid2(sumSize/threadsPerBlock+1);
+
+  dim3 threadsPerBlockOld(threadsPerBlock);
+  dim3 fullBlocksPerGridOld(int(ceil(float(sumSize)/float(threadsPerBlock))));
+  
+  cudaMemcpy(cudaAuxIncs, cudaAuxSums, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToDevice);
+
+  naiveSumGlobal<<<fullBlocksPerGridOld, threadsPerBlockOld>>>(cudaAuxSums, cudaAuxIncs, sumSize);
+  checkCUDAError("kernel failed 2 !");
+
+  addIncs<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaIndicesB, m_numElements);
+  checkCUDAError("kernel failed!");
+
+  cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+  checkCUDAError("kernel failed 3 !");
+  cudaMemcpy(m_auxSums, cudaAuxSums, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToHost);
+  checkCUDAError("kernel failed 4 !");
 }
 
 bool DataStream::getData(int index, dataPacket& data){

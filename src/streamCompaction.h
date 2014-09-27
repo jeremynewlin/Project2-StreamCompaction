@@ -15,7 +15,7 @@
 #include <time.h>
 #include <map>
 
-#define THREADS_PER_BLOCK 8
+#define THREADS_PER_BLOCK 64
 
 struct dataPacket{
 	int index;
@@ -53,7 +53,10 @@ public:
 	DataStream(int numElements, dataPacket * data);
 	~DataStream();
 
-	void compact();
+	void compactWorkEfficientArbitrary();
+	void compactNaiveSumGlobal();
+	void compactNaiveSumSharedSingleBlock();
+	void compactNaiveSumSharedArbitrary();
 	bool getData(int index, dataPacket& data);
 	int numAlive();
 	void kill(int index);

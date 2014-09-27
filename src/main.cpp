@@ -21,7 +21,7 @@ void naive(){
 	while(ds.numAlive () > 0){
 		int toKill = rand() % ds.numAlive();
 		ds.kill(toKill);
-		ds.compact ();
+		ds.compactWorkEfficientArbitrary ();
 
 		cout<<"killing "<<toKill<<", "<<ds.numAlive()<<" streams remain"<<endl;
 
@@ -38,8 +38,77 @@ void naive(){
 	}
 }
 
-void test(){
-	int numElements = 2048;
+void naiveSumGlobal(){
+	int numElements = 256;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	ds.compactNaiveSumGlobal();
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+}
+
+void naiveSumSharedSingleBlock(){
+	int numElements = 16;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	ds.compactNaiveSumSharedSingleBlock();
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+}
+
+void naiveSumSharedArbitrary(){
+	int numElements = 33;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
+	}
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	ds.compactNaiveSumSharedArbitrary();
+
+	for (int i=0; i<ds.numAlive(); i+=1){
+		cout<<ds.m_indices[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+
+	for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+		cout<<ds.m_auxSums[i];
+		if (i<ds.numAlive()-1) cout<<",";
+	}
+	cout<<endl;
+}
+
+void workEfficientArbitrary(){
+	int numElements = 512;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -56,7 +125,7 @@ void test(){
 	// }
 	// cout<<endl;
 
-	ds.compact();
+	ds.compactWorkEfficientArbitrary();
 
 	for (int i=0; i<ds.numAlive(); i+=1){
 		cout<<ds.m_indices[i];
@@ -74,6 +143,6 @@ void test(){
 int main(){
 	//testStreamCompaction();
 	srand (time(NULL));
-	test ();
+	workEfficientArbitrary ();
 	return 0;
 }
