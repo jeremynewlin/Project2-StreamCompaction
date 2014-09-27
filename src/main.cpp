@@ -39,7 +39,7 @@ void naive(){
 }
 
 void test(){
-	int numElements = 16;
+	int numElements = 32;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -50,16 +50,22 @@ void test(){
 
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
+	// for (int i=0; i<ds.numAlive(); i+=1){
+	// 	cout<<ds.m_indices[i];
+	// 	if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
+
+	ds.compact();
+
 	for (int i=0; i<ds.numAlive(); i+=1){
 		cout<<ds.m_indices[i];
 		if (i<ds.numAlive()-1) cout<<",";
 	}
 	cout<<endl;
 
-	ds.compact();
-
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
+	for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+		cout<<ds.m_auxSums[i];
 		if (i<ds.numAlive()-1) cout<<",";
 	}
 	cout<<endl;

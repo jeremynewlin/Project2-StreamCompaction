@@ -15,6 +15,8 @@
 #include <time.h>
 #include <map>
 
+#define THREADS_PER_BLOCK 8
+
 struct dataPacket{
 	int index;
 	bool alive;
@@ -40,9 +42,13 @@ private:
 
 	int * cudaIndicesA;
 	int * cudaIndicesB;
+	
+	int * cudaAuxSums;
+	int * cudaAuxIncs;
 
 public:
 	int * m_indices;
+	int * m_auxSums;
 
 	DataStream(int numElements, dataPacket * data);
 	~DataStream();

@@ -6,6 +6,8 @@
 
 #include "streamCompaction.h"
 
+using namespace std;
+
 void checkCUDAError(const char *msg) {
   cudaError_t err = cudaGetLastError();
   if( cudaSuccess != err) {
@@ -72,6 +74,67 @@ __global__ void test(int* in, int* out, int n){
     out[2*index+1] = temp[2*index+1];
   }
 
+}
+
+__global__ void test2(int* in, int* out, int n, int* sums=0){
+
+  extern __shared__ float temp[];
+
+  int realIndex = (blockIdx.x * blockDim.x) + threadIdx.x;
+  temp[realIndex] = 0;
+  
+  int offset = 1;
+  int index = threadIdx.x;
+
+  temp[2*index] = in[2*realIndex];
+  temp[2*index+1] = in[2*realIndex+1];
+
+  for (int d = n>>1; d>0; d >>= 1){
+    __syncthreads();
+    if (index < d){
+      int ai = offset * (2*index+1) - 1;
+      int bi = offset * (2*index+2) - 1;
+
+      temp[bi] += temp[ai];
+    }
+    offset *= 2;
+  }
+  
+  if (index == 0){
+    if (sums) sums[blockIdx.x] = temp[16-1];
+    temp[n - 1] = 0;
+  }
+
+  for (int d = 1; d<n; d*=2){
+    offset >>= 1;
+    __syncthreads();
+    if (index < d){
+
+      int ai = offset * (2*index+1) - 1;
+      int bi = offset * (2*index+2) - 1;
+
+      if (ai < n && bi < n){
+        float t = temp[ai];
+        temp[ai] = temp[bi];
+        temp[bi] += t;
+      }
+    }
+  }
+  __syncthreads();
+
+  out[2*realIndex] = temp[2*index];
+  out[2*realIndex+1] = temp[2*index+1];
+
+}
+
+__global__ void addIncs(int* cudaAuxIncs, int* cudaIndicesB, int n){
+  int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+
+  // if (index < n){
+    // cudaIndicesB[index] = blockIdx.x; //cudaAuxIncs[blockIdx.x];
+    cudaIndicesB[index] += cudaAuxIncs[blockIdx.x];
+  // }
 }
 
 __global__ void streamCompaction(dataPacket* inRays, int* indices, dataPacket* outRays, int numElements){
@@ -195,11 +258,32 @@ void testStreamCompaction(){
 DataStream::DataStream(int numElements, dataPacket * data){
   m_data = data;
   m_numElementsAlive = numElements;
+
+  // if (numElements % THREADS_PER_BLOCK*2 != 0){
+  //   int counter = 1;
+  //   while (THREADS_PER_BLOCK*2*counter < numElements){
+  //     counter += 1;
+  //   }
+  //   numElements = THREADS_PER_BLOCK*2*counter;
+  // }
+
+  // cout<<numElements<<endl;
+
   m_numElements = numElements;
 
   m_indices = new int[numElements];
   for (int i=0; i<numElements; i+=1){
-    m_indices[i] = 1;
+    if (i < m_numElementsAlive){
+      m_indices[i] = 1;
+    }
+    else{
+      m_indices[i] = 0;
+    }
+  }
+
+  m_auxSums = new int[numElements/(THREADS_PER_BLOCK*2)];
+  for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+    m_auxSums[i] = 0;
   }
 
   //cudaInit (cudaDataA, cudaDataB, cudaIndicesA, cudaIndicesB);
@@ -207,11 +291,15 @@ DataStream::DataStream(int numElements, dataPacket * data){
   cudaMalloc ((void**)&cudaDataB, numElements*sizeof (dataPacket));
   cudaMalloc ((void**)&cudaIndicesA, numElements*sizeof (int));
   cudaMalloc ((void**)&cudaIndicesB, numElements*sizeof (int));
+  cudaMalloc ((void**)&cudaAuxSums, numElements/(THREADS_PER_BLOCK*2)*sizeof (int));
+  cudaMalloc ((void**)&cudaAuxIncs, numElements/(THREADS_PER_BLOCK*2)*sizeof (int));
 
   cudaMemcpy(cudaDataA, m_data, numElements*sizeof(dataPacket), cudaMemcpyHostToDevice);
   cudaMemcpy(cudaDataB, m_data, numElements*sizeof(dataPacket), cudaMemcpyHostToDevice);
   cudaMemcpy(cudaIndicesA, m_indices, numElements*sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy(cudaIndicesB, m_indices, numElements*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(cudaAuxSums, m_auxSums, numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(cudaAuxIncs, m_auxSums, numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyHostToDevice);
 }
 
 DataStream::~DataStream(){
@@ -219,22 +307,42 @@ DataStream::~DataStream(){
   cudaFree (cudaDataB);
   cudaFree (cudaIndicesA);
   cudaFree (cudaIndicesB);
+  cudaFree (cudaAuxSums);
+  cudaFree (cudaAuxIncs);
 
   delete [] m_data;
   delete [] m_indices;
+  delete [] m_auxSums;
 }
 
 void DataStream::compact(){
 
   int numElements = m_numElementsAlive;
-  int threadsPerBlock = 64;
-  int procsPefBlock = threadsPerBlock*2;
+  int threadsPerBlock = THREADS_PER_BLOCK; // 8
+  int procsPefBlock = threadsPerBlock*2;   // 16
 
-  dim3 initialScanThreadsPerBlock(threadsPerBlock/2);
-  dim3 initialScanBlocksPerGrid(numElements/threadsPerBlock);
+  dim3 initialScanThreadsPerBlock(procsPefBlock/2);        //8
+  dim3 initialScanBlocksPerGrid(numElements/procsPefBlock);//
+
+  int sumSize = numElements/(THREADS_PER_BLOCK*2);
+
+  dim3 initialScanThreadsPerBlock2(sumSize/2);        //16
+  dim3 initialScanBlocksPerGrid2(sumSize/(sumSize/2)+1);//1024/16
 
   dim3 threadsPerBlockL(threadsPerBlock);
   dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
+
+  test2<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
+  checkCUDAError("kernel failed!");
+
+  test2<<<initialScanBlocksPerGrid2, initialScanThreadsPerBlock2, m_numElements*sizeof(int)>>>(cudaAuxSums, cudaAuxIncs, sumSize);
+  checkCUDAError("kernel failed!");
+
+  addIncs<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
+  checkCUDAError("kernel failed!");
+
+  cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(m_auxSums, cudaAuxIncs, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToHost);
 
   // // scan algorithm
   //   for (int d=1; d<=ceil(log(m_numElementsAlive)/log(2)); d++){
@@ -244,9 +352,9 @@ void DataStream::compact(){
   //     cudaIndicesB = temp;
   //   }
 
-    test<<<fullBlocksPerGridL, threadsPerBlockL, m_numElementsAlive*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive);
-    checkCUDAError("kernel failed!");
-    cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+    // test<<<fullBlocksPerGridL, threadsPerBlockL, m_numElementsAlive*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive);
+    // checkCUDAError("kernel failed!");
+    // cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
     // //Stream compation from A into B, then save back into A
     // streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, cudaDataB, m_numElementsAlive);
     // dataPacket * temp = cudaDataA;
