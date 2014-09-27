@@ -246,12 +246,19 @@ __global__ void killStream(int index, dataPacket* inRays, int* indices, int numE
   int k = (blockIdx.x * blockDim.x) + threadIdx.x;
 
   if (k<numElements){
-    inRays[k].alive = true;
-    indices[k] = 1;
     if (k == index){
       inRays[k].alive = false;
       indices[k] = 0;
     }
+  }
+}
+
+__global__ void resetStreams(dataPacket* inRays, int* indices, int numElements){
+  int k = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  if (k<numElements){
+    inRays[k].alive = true;
+    indices[k] = 1;
   }
 }
 
@@ -511,6 +518,8 @@ void DataStream::compactWorkEfficientArbitrary(){
 
   // update numrays
   cudaMemcpy(&m_numElementsAlive, &cudaIndicesB[m_numElementsAlive], sizeof(int), cudaMemcpyDeviceToHost);
+
+  resetStreams<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, m_numElementsAlive);
 }
 
 void DataStream::compactNaiveSumGlobal(){
@@ -539,6 +548,7 @@ void DataStream::compactNaiveSumGlobal(){
   cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
   cout<<m_numElementsAlive<<endl;
 
+  resetStreams<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, m_numElementsAlive);
 }
 
 void DataStream::compactNaiveSumSharedSingleBlock(){
@@ -608,6 +618,8 @@ void DataStream::compactNaiveSumSharedArbitrary(){
   cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
   cout<<m_numElementsAlive<<endl;
   //////////////////////////////////////////////////////////////////////////////////////
+
+  resetStreams<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, m_numElementsAlive);
 }
 
 bool DataStream::getData(int index, dataPacket& data){

@@ -199,14 +199,21 @@ void naiveCompactSharedArbitrary(){
 
 	int bound = 0;
 	while(ds.numAlive () > 0 && bound < 10){
-		int toKill = rand() % ds.numAlive();
-		// toKill = 10;
-		ds.kill(toKill);
-		ds.compactNaiveSumSharedArbitrary ();
 
+		int toKill = rand() % ds.numAlive();
+		ds.kill(toKill);
 		dataPacket cur;
 		ds.getData(toKill, cur);
-		cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+		cout<<"killed "<<cur.index<<endl;
+
+		toKill = rand() % ds.numAlive();
+		ds.kill(toKill);
+		ds.getData(toKill, cur);
+		cout<<"killed "<<cur.index<<endl;
+
+		ds.compactNaiveSumSharedArbitrary ();
+
+		cout<<ds.numAlive()<<" streams remain"<<endl;
 
 		ds.fetchDataFromGPU();
 
@@ -287,6 +294,6 @@ int main(){
 	srand (time(NULL));
 	// naiveCompactGlobal ();
 	// naiveCompactSharedArbitrary ();
-	workEfficientCompactSharedArbitrary ();
+	naiveCompactSharedArbitrary ();
 	return 0;
 }
