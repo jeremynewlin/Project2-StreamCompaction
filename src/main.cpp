@@ -186,7 +186,7 @@ void naiveSumSharedArbitrary(){
 }
 
 void naiveCompactSharedArbitrary(){
-	int numElements = 33;
+	int numElements = 32;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -221,7 +221,7 @@ void naiveCompactSharedArbitrary(){
 }
 
 void workEfficientArbitrary(){
-	int numElements = 512;
+	int numElements = 40;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -234,17 +234,52 @@ void workEfficientArbitrary(){
 
 	ds.compactWorkEfficientArbitrary();
 
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
-		if (i<ds.numAlive()-1) cout<<",";
-	}
-	cout<<endl;
+	// for (int i=0; i<ds.numAlive(); i+=1){
+	// 	cout<<ds.m_indices[i];
+	// 	if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
 
-	for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
-		cout<<ds.m_auxSums[i];
-		if (i<ds.numAlive()-1) cout<<",";
+	// for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+	// 	cout<<ds.m_auxSums[i];
+	// 	if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
+}
+
+void workEfficientCompactSharedArbitrary(){
+	int numElements = 33;
+
+	dataPacket * ints = new dataPacket[numElements];
+	for (int i=0; i<numElements; i+=1){
+		ints[i] = dataPacket(i);
 	}
-	cout<<endl;
+
+	DataStream ds(numElements, ints);
+
+	cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	int bound = 0;
+	while(ds.numAlive () > 0 && bound < 20){
+		int toKill = rand() % ds.numAlive();
+		// toKill = 10;
+		ds.kill(toKill);
+		ds.compactWorkEfficientArbitrary ();
+
+		dataPacket cur;
+		ds.getData(toKill, cur);
+		cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+
+		ds.fetchDataFromGPU();
+
+		for (int i=0; i<ds.numAlive(); i+=1){
+			ds.getData(i, cur);
+			cout<<cur.index;
+			if (i<ds.numAlive()-1) cout<<",";
+		}
+		cout<<endl<<endl;
+		bound+=1;
+	}
 }
 
 int main(){
@@ -252,6 +287,6 @@ int main(){
 	srand (time(NULL));
 	// naiveCompactGlobal ();
 	// naiveCompactSharedArbitrary ();
-	workEfficientArbitrary ();
+	workEfficientCompactSharedArbitrary ();
 	return 0;
 }

@@ -176,7 +176,6 @@ __global__ void workEfficientArbitrary(int* in, int* out, int n, int* sums=0){
   extern __shared__ float temp[];
 
   int realIndex = (blockIdx.x * blockDim.x) + threadIdx.x;
-  temp[realIndex] = 0;
   
   int offset = 1;
   int index = threadIdx.x;
@@ -352,6 +351,9 @@ void testStreamCompaction(){
 
 DataStream::DataStream(int numElements, dataPacket * data){
   m_data = data;
+
+  if (numElements % (THREADS_PER_BLOCK*2)) numElements+=1;
+
   m_numElementsAlive = numElements;
 
   if (numElements % (THREADS_PER_BLOCK*2) != 0){
@@ -433,7 +435,7 @@ void DataStream::globalSum(int* in, int* out, int n){
 
 void DataStream::compactWorkEfficientArbitrary(){
 
-  int numElements = m_numElementsAlive;
+  int numElements = m_numElements;
   int threadsPerBlock = THREADS_PER_BLOCK; // 8
   int procsPefBlock = threadsPerBlock*2;   // 16
 
@@ -454,34 +456,61 @@ void DataStream::compactWorkEfficientArbitrary(){
   workEfficientArbitrary<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
   checkCUDAError("kernel failed!");
 
-  workEfficientArbitrary<<<initialScanBlocksPerGrid2, initialScanThreadsPerBlock2, m_numElements*sizeof(int)>>>(cudaAuxSums, cudaAuxIncs, sumSize);
-  checkCUDAError("kernel failed!");
+  // cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+  // for (int i=0; i<numAlive(); i+=1){
+  //   cout<<m_indices[i];
+  //   if (i<numAlive()-1) cout<<",";
+  // }
+  // cout<<endl;
+
+  // cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+  // for (int i=0; i<numAlive(); i+=1){
+  //   cout<<m_indices[i];
+  //   if (i<numAlive()-1) cout<<",";
+  // }
+  // cout<<endl;
+
+  for (int d=1; d<=ceil(log(sumSize)/log(2)); d++){
+    sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, sumSize, powf(2.0f, d-1));
+    cudaThreadSynchronize();
+    int* temp = cudaAuxSums;
+    cudaAuxSums = cudaAuxIncs;
+    cudaAuxIncs = temp;
+  }
+  shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, m_numElementsAlive);
 
   addIncs<<<initialScanBlocksPerGrid3, initialScanThreadsPerBlock3>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
   checkCUDAError("kernel failed!");
 
-  cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-  cudaMemcpy(m_auxSums, cudaAuxIncs, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToHost);
+  // cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+  // for (int i=0; i<numAlive(); i+=1){
+  //   cout<<m_indices[i];
+  //   if (i<numAlive()-1) cout<<",";
+  // }
+  // cout<<endl;
 
-  // // scan algorithm
-  //   for (int d=1; d<=ceil(log(m_numElementsAlive)/log(2)); d++){
-  //     sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive, powf(2.0f, d-1));
-  //     int* temp = cudaIndicesA;
-  //     cudaIndicesA = cudaIndicesB;
-  //     cudaIndicesB = temp;
-  //   }
+  // cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
+  // for (int i=0; i<numAlive()+1; i+=1){
+  //   cout<<m_indices[i];
+  //   if (i<numAlive()-1) cout<<",";
+  // }
+  // cout<<endl;
 
-    // test<<<fullBlocksPerGridL, threadsPerBlockL, m_numElementsAlive*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive);
-    // checkCUDAError("kernel failed!");
-    // cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-    // //Stream compation from A into B, then save back into A
-    // streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, cudaDataB, m_numElementsAlive);
-    // dataPacket * temp = cudaDataA;
-    // cudaDataA = cudaDataB;
-    // cudaDataB = temp;
+  // cudaMemcpy(m_auxSums, cudaAuxIncs, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToHost);
+  // for (int i=0; i<m_numElements/(THREADS_PER_BLOCK*2); i+=1){
+  //   cout<<m_auxSums[i];
+  //   if (i<numAlive()-1) cout<<",";
+  // }
+  // cout<<endl;
 
-    // // update numrays
-    // cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
+  //Stream compation from A into B, then save back into A
+  streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesB, cudaDataB, m_numElementsAlive);
+  dataPacket * temp = cudaDataA;
+  cudaDataA = cudaDataB;
+  cudaDataB = temp;
+
+  // update numrays
+  cudaMemcpy(&m_numElementsAlive, &cudaIndicesB[m_numElementsAlive], sizeof(int), cudaMemcpyDeviceToHost);
 }
 
 void DataStream::compactNaiveSumGlobal(){
@@ -523,7 +552,6 @@ void DataStream::compactNaiveSumSharedSingleBlock(){
   checkCUDAError("kernel failed!");
 
   cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-
 }
 
 void DataStream::compactNaiveSumSharedArbitrary(){
