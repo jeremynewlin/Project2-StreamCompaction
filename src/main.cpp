@@ -232,12 +232,6 @@ void workEfficientArbitrary(){
 
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
-	// for (int i=0; i<ds.numAlive(); i+=1){
-	// 	cout<<ds.m_indices[i];
-	// 	if (i<ds.numAlive()-1) cout<<",";
-	// }
-	// cout<<endl;
-
 	ds.compactWorkEfficientArbitrary();
 
 	for (int i=0; i<ds.numAlive(); i+=1){
@@ -257,6 +251,7 @@ int main(){
 	//testStreamCompaction();
 	srand (time(NULL));
 	// naiveCompactGlobal ();
-	naiveCompactSharedArbitrary ();
+	// naiveCompactSharedArbitrary ();
+	workEfficientArbitrary ();
 	return 0;
 }
