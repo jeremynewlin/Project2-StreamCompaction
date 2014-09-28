@@ -7,6 +7,26 @@
 #include "streamCompaction.h"
 
 using namespace std;
+#include <thrust/copy.h>
+
+// ...
+// struct is_even
+// {
+//   __host__ __device__
+//   bool operator()(const int x)
+//   {
+//     return (x % 2) == 0;
+//   }
+// };
+// ...
+// int N = 6;
+// int data[N]    = { 0, 1,  2, 3, 4, 5};
+// int stencil[N] = {-2, 0, -1, 0, 1, 2};
+// int result[4];
+// thrust::copy_if(data, data + N, stencil, result, is_even());
+// // data remains    = { 0, 1,  2, 3, 4, 5};
+// // stencil remains = {-2, 0, -1, 0, 1, 2};
+// // result is now     { 0, 1,  3, 5}
 
 void checkCUDAError(const char *msg) {
   cudaError_t err = cudaGetLastError();
@@ -242,6 +262,33 @@ __global__ void streamCompaction(dataPacket* inRays, int* indices, dataPacket* o
   }
 }
 
+struct isAlive
+{
+  __host__ __device__
+  bool operator()(const dataPacket& dp)
+  {
+    return dp.alive;
+  }
+};
+
+struct isEven
+{
+  __host__ __device__
+  bool operator()(const int x)
+  {
+    return (x%2 == 0);
+  }
+};
+
+struct isOne
+{
+  __host__ __device__
+  bool operator()(const int x)
+  {
+    return (x == 1);
+  }
+};
+
 __global__ void killStream(int index, dataPacket* inRays, int* indices, int numElements){
   int k = (blockIdx.x * blockDim.x) + threadIdx.x;
 
@@ -440,6 +487,10 @@ void DataStream::globalSum(int* in, int* out, int n){
   shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(in, out, m_numElementsAlive);
 }
 
+void DataStream::thrustStreamCompact(){
+  thrust::copy_if (m_data, m_data+m_numElements, m_indices, m_data, isOne());
+}
+
 void DataStream::compactWorkEfficientArbitrary(){
 
   int numElements = m_numElements;
@@ -460,8 +511,8 @@ void DataStream::compactWorkEfficientArbitrary(){
   dim3 threadsPerBlockL(threadsPerBlock);
   dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
 
-  workEfficientArbitrary<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
-  checkCUDAError("kernel failed!");
+  workEfficientArbitrary<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, procsPefBlock*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
+  checkCUDAError("kernel failed1!");
 
   // cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
   // for (int i=0; i<numAlive(); i+=1){
@@ -487,7 +538,7 @@ void DataStream::compactWorkEfficientArbitrary(){
   shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, m_numElementsAlive);
 
   addIncs<<<initialScanBlocksPerGrid3, initialScanThreadsPerBlock3>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
-  checkCUDAError("kernel failed!");
+  checkCUDAError("kernel failed2!");
 
   // cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
   // for (int i=0; i<numAlive(); i+=1){
@@ -538,7 +589,7 @@ void DataStream::compactNaiveSumGlobal(){
   }
   shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive);
 
-  //Stream compation from A into B, then save back into A
+  // Stream compation from A into B, then save back into A
   streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesB, cudaDataB, m_numElementsAlive);
   dataPacket * temp = cudaDataA;
   cudaDataA = cudaDataB;
@@ -572,7 +623,7 @@ void DataStream::compactNaiveSumSharedArbitrary(){
   dim3 threadsPerBlockL(threadsPerBlock*2);
   dim3 fullBlocksPerGridL(m_numElements/(threadsPerBlock*2));
 
-  naiveSumSharedArbitrary<<<fullBlocksPerGridL, threadsPerBlockL, 2*m_numElements*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, threadsPerBlock*2, cudaAuxSums);
+  naiveSumSharedArbitrary<<<fullBlocksPerGridL, threadsPerBlockL, 2*m_numElements/(m_numElements/(threadsPerBlock*2))*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, threadsPerBlock*2, cudaAuxSums);
   checkCUDAError("kernel failed 1 !");
   ////////////////////////////////////////////////////////////////////////////////////////
 

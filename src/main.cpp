@@ -87,7 +87,7 @@ void naiveSumGlobal(){
 }
 
 void naiveCompactGlobal(){
-	int numElements = 33;
+	int numElements = 100000;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -99,25 +99,24 @@ void naiveCompactGlobal(){
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
 	int bound = 0;
-	while(ds.numAlive () > 0 && bound < 1){
-		int toKill = rand() % ds.numAlive();
-		toKill = 10;
-		ds.kill(toKill);
+	while(ds.numAlive () > 0){
+		for (int i=0; i<numElements/25; i+=1){
+			int toKill = rand() % ds.numAlive();
+			ds.kill(toKill);
+		}
 		ds.compactNaiveSumGlobal ();
 
-		dataPacket cur;
-		ds.getData(toKill, cur);
-		cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+		cout<<"killing ~"<<numElements/25<<" streams, "<<ds.numAlive()<<" streams remain"<<endl;
 
 		ds.fetchDataFromGPU();
 
-		for (int i=0; i<ds.numAlive(); i+=1){
-			ds.getData(i, cur);
-			cout<<cur.index;
-			if (i<ds.numAlive()-1) cout<<",";
-		}
-		cout<<endl<<endl;
-		bound+=1;
+		// for (int i=0; i<ds.numAlive(); i+=1){
+		// 	dataPacket cur;
+		// 	ds.getData(i, cur);
+		// 	cout<<cur.index;
+		// 	if (i<ds.numAlive()-1) cout<<",";
+		// }
+		cout<<endl;
 	}
 }
 
@@ -143,7 +142,46 @@ void naiveSumSharedSingleBlock(){
 }
 
 void naiveSumSharedArbitrary(){
-	int numElements = 34;
+	// int numElements = 34;
+
+	// dataPacket * ints = new dataPacket[numElements];
+	// for (int i=0; i<numElements; i+=1){
+	// 	ints[i] = dataPacket(i);
+	// }
+
+	// DataStream ds(numElements, ints);
+
+	// cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	// int toKill = 32;
+	// ds.kill(toKill);
+
+	// dataPacket cur;
+	// ds.getData(toKill, cur);
+	// cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+
+	// // for (int i=0; i<ds.numAlive(); i+=1){
+	// 	// cout<<ds.m_indices[i];
+	// 	// if (i<ds.numAlive()-1) cout<<",";
+	// // }
+	// // cout<<endl;
+
+
+	// ds.compactNaiveSumSharedArbitrary();
+	// //ds.compactNaiveSumGlobal();
+
+	// // for (int i=0; i<ds.numAlive(); i+=1){
+	// // 	cout<<ds.m_indices[i];
+	// // 	if (i<ds.numAlive()-1) cout<<",";
+	// // }
+	// // cout<<endl;
+
+	// // for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+	// // 	cout<<ds.m_auxSums[i];
+	// // 	if (i<ds.numAlive()-1) cout<<",";
+	// // }
+	// // cout<<endl;
+	int numElements = 100000;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -154,35 +192,26 @@ void naiveSumSharedArbitrary(){
 
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
-	int toKill = 32;
-	ds.kill(toKill);
+	int bound = 0;
+	while(ds.numAlive () > 0){
+		for (int i=0; i<numElements/25; i+=1){
+			int toKill = rand() % ds.numAlive();
+			ds.kill(toKill);
+		}
+		ds.compactNaiveSumSharedArbitrary ();
 
-	dataPacket cur;
-	ds.getData(toKill, cur);
-	cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
+		cout<<"killing ~"<<numElements/25<<" streams, "<<ds.numAlive()<<" streams remain"<<endl;
 
-	// for (int i=0; i<ds.numAlive(); i+=1){
-		// cout<<ds.m_indices[i];
-		// if (i<ds.numAlive()-1) cout<<",";
-	// }
-	// cout<<endl;
+		ds.fetchDataFromGPU();
 
-
-	ds.compactNaiveSumSharedArbitrary();
-	//ds.compactNaiveSumGlobal();
-
-	// for (int i=0; i<ds.numAlive(); i+=1){
-	// 	cout<<ds.m_indices[i];
-	// 	if (i<ds.numAlive()-1) cout<<",";
-	// }
-	// cout<<endl;
-
-	// for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
-	// 	cout<<ds.m_auxSums[i];
-	// 	if (i<ds.numAlive()-1) cout<<",";
-	// }
-	// cout<<endl;
-
+		// for (int i=0; i<ds.numAlive(); i+=1){
+		// 	dataPacket cur;
+		// 	ds.getData(i, cur);
+		// 	cout<<cur.index;
+		// 	if (i<ds.numAlive()-1) cout<<",";
+		// }
+		cout<<endl;
+	}
 }
 
 void naiveCompactSharedArbitrary(){
@@ -228,7 +257,32 @@ void naiveCompactSharedArbitrary(){
 }
 
 void workEfficientArbitrary(){
-	int numElements = 40;
+	// int numElements = 40;
+
+	// dataPacket * ints = new dataPacket[numElements];
+	// for (int i=0; i<numElements; i+=1){
+	// 	ints[i] = dataPacket(i);
+	// }
+
+	// DataStream ds(numElements, ints);
+
+	// cout<<"starting with "<<numElements<<" streams"<<endl;
+
+	// ds.compactWorkEfficientArbitrary();
+
+	// // for (int i=0; i<ds.numAlive(); i+=1){
+	// // 	cout<<ds.m_indices[i];
+	// // 	if (i<ds.numAlive()-1) cout<<",";
+	// // }
+	// // cout<<endl;
+
+	// // for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
+	// // 	cout<<ds.m_auxSums[i];
+	// // 	if (i<ds.numAlive()-1) cout<<",";
+	// // }
+	// // cout<<endl;
+
+	int numElements = 100000;
 
 	dataPacket * ints = new dataPacket[numElements];
 	for (int i=0; i<numElements; i+=1){
@@ -239,19 +293,26 @@ void workEfficientArbitrary(){
 
 	cout<<"starting with "<<numElements<<" streams"<<endl;
 
-	ds.compactWorkEfficientArbitrary();
+	int bound = 0;
+	while(ds.numAlive () > 0){
+		for (int i=0; i<numElements/25; i+=1){
+			int toKill = rand() % ds.numAlive();
+			ds.kill(toKill);
+		}
+		ds.compactWorkEfficientArbitrary ();
 
-	// for (int i=0; i<ds.numAlive(); i+=1){
-	// 	cout<<ds.m_indices[i];
-	// 	if (i<ds.numAlive()-1) cout<<",";
-	// }
-	// cout<<endl;
+		cout<<"killing ~"<<numElements/25<<" streams, "<<ds.numAlive()<<" streams remain"<<endl;
 
-	// for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
-	// 	cout<<ds.m_auxSums[i];
-	// 	if (i<ds.numAlive()-1) cout<<",";
-	// }
-	// cout<<endl;
+		ds.fetchDataFromGPU();
+
+		// for (int i=0; i<ds.numAlive(); i+=1){
+		// 	dataPacket cur;
+		// 	ds.getData(i, cur);
+		// 	cout<<cur.index;
+		// 	if (i<ds.numAlive()-1) cout<<",";
+		// }
+		cout<<endl;
+	}
 }
 
 void workEfficientCompactSharedArbitrary(){
@@ -294,6 +355,6 @@ int main(){
 	srand (time(NULL));
 	// naiveCompactGlobal ();
 	// naiveCompactSharedArbitrary ();
-	naiveCompactSharedArbitrary ();
+	workEfficientArbitrary ();
 	return 0;
 }

@@ -14,8 +14,9 @@
 #include <cmath>
 #include <time.h>
 #include <map>
+#include <thrust/copy.h>
 
-#define THREADS_PER_BLOCK 8
+#define THREADS_PER_BLOCK 64
 
 struct dataPacket{
 	int index;
@@ -35,8 +36,6 @@ private:
 
 	dataPacket * m_data;
 
-	
-
 	dataPacket * cudaDataA;
 	dataPacket * cudaDataB;
 
@@ -47,6 +46,7 @@ private:
 	int * cudaAuxIncs;
 
 	void globalSum(int* in, int* out, int n);
+	void thrustStreamCompact();
 
 public:
 	int * m_indices;
