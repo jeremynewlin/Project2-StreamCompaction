@@ -4,7 +4,7 @@ There are two main components of stream compaction: scan and scatter.
 
 Here is a comparison of the various mehtods I used to scan:
 
-![](https://lh4.googleusercontent.com/TWSCNE_ZOLPWiv-EFjObiNwU7AW9Qfz5X4F-wtiu6JngBCe1ZIg_T5HCn5_k8q8d4OnJkageIPI=w1505-h726)
+![](http://imgur.com/AaR3gk0,V55kt3w)
 
 As you can see, the serial version is faster for small arrays, but is quickly out matched as the array length grows.  The global
 memory version is always just a bit slower than the shared memory version, which makes sense, as the only difference is the slowdown
@@ -17,7 +17,7 @@ thrust version of this, becuase I don't think my basic version in CUDA should be
 I'm not sure how else to optimize my implementation of scatter any further.  It has 3 global memory reads that are absolutely necessary,
 and a branch.
 
-![](https://lh3.googleusercontent.com/-smo_LiXzpgg15xhhf7EwXruEdDWJ6cN-NfNbUv0Z9F7l4qwYAyI22eZpwk9dHrYbonYsrSY9ik=w1505-h726)
+![](http://imgur.com/AaR3gk0,V55kt3w#1)
 
 
 # REFERENCES
