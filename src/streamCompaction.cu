@@ -14,25 +14,6 @@ using namespace std;
 #define CONFLICT_FREE_OFFSET(n) \  
     ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS))  
 
-// ...
-// struct is_even
-// {
-//   __host__ __device__
-//   bool operator()(const int x)
-//   {
-//     return (x % 2) == 0;
-//   }
-// };
-// ...
-// int N = 6;
-// int data[N]    = { 0, 1,  2, 3, 4, 5};
-// int stencil[N] = {-2, 0, -1, 0, 1, 2};
-// int result[4];
-// thrust::copy_if(data, data + N, stencil, result, is_even());
-// // data remains    = { 0, 1,  2, 3, 4, 5};
-// // stencil remains = {-2, 0, -1, 0, 1, 2};
-// // result is now     { 0, 1,  3, 5}
-
 void checkCUDAError(const char *msg) {
   cudaError_t err = cudaGetLastError();
   if( cudaSuccess != err) {
