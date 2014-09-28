@@ -9,6 +9,11 @@
 using namespace std;
 #include <thrust/copy.h>
 
+#define NUM_BANKS 16  
+#define LOG_NUM_BANKS 4  
+#define CONFLICT_FREE_OFFSET(n) \  
+    ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS))  
+
 // ...
 // struct is_even
 // {
@@ -115,10 +120,6 @@ __global__ void naiveSumSharedArbitrary(int* in, int* out, int n, int* sums=0){
   int localIndex = threadIdx.x;
   int globalIndex = (blockIdx.x * blockDim.x) + threadIdx.x;
 
-  // if (globalIndex >= n) return;
-
-  // out[k] = index; return;
-
   extern __shared__ int shared[];
   int *tempIn = &shared[0];
   int *tempOut = &shared[n];
@@ -195,13 +196,15 @@ __global__ void workEfficientArbitrary(int* in, int* out, int n, int* sums=0){
 
   extern __shared__ float temp[];
 
-  int realIndex = (blockIdx.x * blockDim.x) + threadIdx.x;
-  
   int offset = 1;
   int index = threadIdx.x;
 
-  temp[2*index] = in[2*realIndex];
-  temp[2*index+1] = in[2*realIndex+1];
+  int indexA = index;  
+  int indexB = index + (n/2);  
+  int bankOffsetA = CONFLICT_FREE_OFFSET(indexA);
+  int bankOffsetB = CONFLICT_FREE_OFFSET(indexB);
+  temp[indexA + bankOffsetA] = in[indexA];
+  temp[indexB + bankOffsetB] = in[indexB];
 
   for (int d = n>>1; d>0; d >>= 1){
     __syncthreads();
@@ -209,14 +212,17 @@ __global__ void workEfficientArbitrary(int* in, int* out, int n, int* sums=0){
       int ai = offset * (2*index+1) - 1;
       int bi = offset * (2*index+2) - 1;
 
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
       temp[bi] += temp[ai];
     }
     offset *= 2;
   }
   
   if (index == 0){
-    if (sums) sums[blockIdx.x] = temp[n-1];
-    temp[n - 1] = 0;
+    if (sums) sums[blockIdx.x] = temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)];
+    temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)] = 0;
   }
 
   for (int d = 1; d<n; d*=2){
@@ -227,6 +233,9 @@ __global__ void workEfficientArbitrary(int* in, int* out, int n, int* sums=0){
       int ai = offset * (2*index+1) - 1;
       int bi = offset * (2*index+2) - 1;
 
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
       if (ai < n && bi < n){
         float t = temp[ai];
         temp[ai] = temp[bi];
@@ -236,9 +245,8 @@ __global__ void workEfficientArbitrary(int* in, int* out, int n, int* sums=0){
   }
   __syncthreads();
 
-  out[2*realIndex] = temp[2*index];
-  out[2*realIndex+1] = temp[2*index+1];
-
+  out[indexA] = temp[indexA + bankOffsetA];  
+  out[indexB] = temp[indexB + bankOffsetB];  
 }
 
 __global__ void addIncs(int* cudaAuxIncs, int* cudaIndicesB, int n){
@@ -465,10 +473,13 @@ DataStream::~DataStream(){
 }
 
 void DataStream::serialScan(){
+  clock_t t = clock ();
   m_indices[0] = 0;
   for (int i=1; i<m_numElementsAlive; i+=1){
     m_indices[i] = m_indices[i] + m_indices[i-1];
   }
+  t = clock() - t;
+  cout<<(float)t/CLOCKS_PER_SEC<<endl;
 }
 
 void DataStream::globalSum(int* in, int* out, int n){
@@ -488,7 +499,10 @@ void DataStream::globalSum(int* in, int* out, int n){
 }
 
 void DataStream::thrustStreamCompact(){
+  clock_t t = clock ();
   thrust::copy_if (m_data, m_data+m_numElements, m_indices, m_data, isOne());
+  t = clock() - t;
+  cout<<(float)t/CLOCKS_PER_SEC<<endl;
 }
 
 void DataStream::compactWorkEfficientArbitrary(){
@@ -501,6 +515,7 @@ void DataStream::compactWorkEfficientArbitrary(){
   dim3 initialScanBlocksPerGrid(numElements/procsPefBlock);//
 
   int sumSize = numElements/(THREADS_PER_BLOCK*2);
+  if (sumSize<2) sumSize+=2;
 
   dim3 initialScanThreadsPerBlock2(sumSize/2);        //16
   dim3 initialScanBlocksPerGrid2(sumSize/(sumSize/2)+1);//1024/16
@@ -512,21 +527,6 @@ void DataStream::compactWorkEfficientArbitrary(){
   dim3 fullBlocksPerGridL(int(ceil(float(m_numElementsAlive)/float(threadsPerBlock))));
 
   workEfficientArbitrary<<<initialScanBlocksPerGrid, initialScanThreadsPerBlock, procsPefBlock*sizeof(int)>>>(cudaIndicesA, cudaIndicesB, procsPefBlock, cudaAuxSums);
-  checkCUDAError("kernel failed1!");
-
-  // cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-  // for (int i=0; i<numAlive(); i+=1){
-  //   cout<<m_indices[i];
-  //   if (i<numAlive()-1) cout<<",";
-  // }
-  // cout<<endl;
-
-  // cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-  // for (int i=0; i<numAlive(); i+=1){
-  //   cout<<m_indices[i];
-  //   if (i<numAlive()-1) cout<<",";
-  // }
-  // cout<<endl;
 
   for (int d=1; d<=ceil(log(sumSize)/log(2)); d++){
     sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, sumSize, powf(2.0f, d-1));
@@ -535,31 +535,8 @@ void DataStream::compactWorkEfficientArbitrary(){
     cudaAuxSums = cudaAuxIncs;
     cudaAuxIncs = temp;
   }
-  shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, m_numElementsAlive);
-
+  shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, m_numElements/(THREADS_PER_BLOCK*2));
   addIncs<<<initialScanBlocksPerGrid3, initialScanThreadsPerBlock3>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
-  checkCUDAError("kernel failed2!");
-
-  // cudaMemcpy(m_indices, cudaIndicesA, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-  // for (int i=0; i<numAlive(); i+=1){
-  //   cout<<m_indices[i];
-  //   if (i<numAlive()-1) cout<<",";
-  // }
-  // cout<<endl;
-
-  // cudaMemcpy(m_indices, cudaIndicesB, m_numElements*sizeof(int), cudaMemcpyDeviceToHost);
-  // for (int i=0; i<numAlive()+1; i+=1){
-  //   cout<<m_indices[i];
-  //   if (i<numAlive()-1) cout<<",";
-  // }
-  // cout<<endl;
-
-  // cudaMemcpy(m_auxSums, cudaAuxIncs, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToHost);
-  // for (int i=0; i<m_numElements/(THREADS_PER_BLOCK*2); i+=1){
-  //   cout<<m_auxSums[i];
-  //   if (i<numAlive()-1) cout<<",";
-  // }
-  // cout<<endl;
 
   //Stream compation from A into B, then save back into A
   streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesB, cudaDataB, m_numElementsAlive);
@@ -580,14 +557,30 @@ void DataStream::compactNaiveSumGlobal(){
   dim3 threadsPerBlockL(threadsPerBlock);
   dim3 fullBlocksPerGridL(m_numElements/threadsPerBlock);
 
+  clock_t t = clock();
   for (int d=1; d<=ceil(log(m_numElementsAlive)/log(2)); d++){
     sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive, powf(2.0f, d-1));
+    checkCUDAError("kernel failed 1 !");
     cudaThreadSynchronize();
     int* temp = cudaIndicesA;
     cudaIndicesA = cudaIndicesB;
     cudaIndicesB = temp;
   }
   shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaIndicesA, cudaIndicesB, m_numElementsAlive);
+  checkCUDAError("kernel failed 1 !");
+  t = clock() - t;
+
+  cudaMemcpy(m_indices, cudaIndicesB, m_numElementsAlive*sizeof(int), cudaMemcpyDeviceToHost);
+
+  cout<<m_indices[m_numElementsAlive-1]<<": ";
+  cout<<(float) t / CLOCKS_PER_SEC<<endl;
+
+  // for (int i=0; i<numAlive(); i+=1){
+  //     cout<<m_indices[i];
+  //     if (i<numAlive()-1) cout<<",";
+  // }
+  // cout<<endl;
+
 
   // Stream compation from A into B, then save back into A
   streamCompaction<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesB, cudaDataB, m_numElementsAlive);
@@ -597,8 +590,6 @@ void DataStream::compactNaiveSumGlobal(){
 
   // update numrays
   cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
-  cout<<m_numElementsAlive<<endl;
-
   resetStreams<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, m_numElementsAlive);
 }
 
@@ -635,7 +626,7 @@ void DataStream::compactNaiveSumSharedArbitrary(){
   dim3 threadsPerBlockOld(threadsPerBlock);
   dim3 fullBlocksPerGridOld(int(ceil(float(sumSize)/float(threadsPerBlock))));
   
-  cudaMemcpy(cudaAuxIncs, cudaAuxSums, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToDevice);
+  // cudaMemcpy(cudaAuxIncs, cudaAuxSums, m_numElements/(THREADS_PER_BLOCK*2)*sizeof(int), cudaMemcpyDeviceToDevice);
 
   for (int d=1; d<=ceil(log(sumSize)/log(2)); d++){
     sum<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, sumSize, powf(2.0f, d-1));
@@ -644,7 +635,7 @@ void DataStream::compactNaiveSumSharedArbitrary(){
     cudaAuxSums = cudaAuxIncs;
     cudaAuxIncs = temp;
   }
-  shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, m_numElementsAlive);
+  shift<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxSums, cudaAuxIncs, m_numElements/(THREADS_PER_BLOCK*2));
 
   addIncs<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaAuxIncs, cudaIndicesB, m_numElements);
 
@@ -652,24 +643,21 @@ void DataStream::compactNaiveSumSharedArbitrary(){
   int * temp = cudaIndicesA;
   cudaIndicesA = cudaIndicesB;
   cudaIndicesB = temp;
-  ////////////////////////////////////////////////////////////////////////////////////////
 
-  ////////////////////////////////////////////////////////////////////////////////////////
   dim3 threadsPerBlockLL(threadsPerBlock);
   dim3 fullBlocksPerGridLL(m_numElements/threadsPerBlock);
 
+  clock_t t = clock();
   //Stream compation from A into B, then save back into A
   streamCompaction<<<fullBlocksPerGridLL, threadsPerBlockLL>>>(cudaDataA, cudaIndicesB, cudaDataB, m_numElementsAlive);
   dataPacket * tempDP = cudaDataA;
   cudaDataA = cudaDataB;
   cudaDataB = tempDP;
+  t = clock() - t;
+  cout<<(float)t / CLOCKS_PER_SEC<<endl;
 
   // // update numrays
-  ////////////////////////////////////////////////////////////////////////////////////////
   cudaMemcpy(&m_numElementsAlive, &cudaIndicesA[m_numElementsAlive-1], sizeof(int), cudaMemcpyDeviceToHost);
-  cout<<m_numElementsAlive<<endl;
-  //////////////////////////////////////////////////////////////////////////////////////
-
   resetStreams<<<fullBlocksPerGridL, threadsPerBlockL>>>(cudaDataA, cudaIndicesA, m_numElementsAlive);
 }
 

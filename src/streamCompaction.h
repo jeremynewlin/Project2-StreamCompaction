@@ -15,8 +15,9 @@
 #include <time.h>
 #include <map>
 #include <thrust/copy.h>
+#include <time.h>
 
-#define THREADS_PER_BLOCK 64
+#define THREADS_PER_BLOCK 256
 
 struct dataPacket{
 	int index;

@@ -1,5 +1,4 @@
 #include <iostream>
-#include <time.h>
 
 #include "streamCompaction.h"
 
@@ -19,11 +18,11 @@ void serialSum(){
 
 	ds.serialScan();
 
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
-		if (i<ds.numAlive()-1) cout<<",";
-	}
-	cout<<endl;
+	// for (int i=0; i<ds.numAlive(); i+=1){
+	// 	cout<<ds.m_indices[i];
+	// 	if (i<ds.numAlive()-1) cout<<",";
+	// }
+	// cout<<endl;
 }
 
 void naive(){
@@ -60,30 +59,35 @@ void naive(){
 }
 
 void naiveSumGlobal(){
-	int numElements = 40;
 
-	dataPacket * ints = new dataPacket[numElements];
-	for (int i=0; i<numElements; i+=1){
-		ints[i] = dataPacket(i);
+	int ne[] = {100, 1000, 10000, 100000, 1000000, 10000000};
+	for (int  i=0; i<6; i+=1){
+		int numElements = ne[i];
+
+		dataPacket * ints = new dataPacket[numElements];
+		for (int i=0; i<numElements; i+=1){
+			ints[i] = dataPacket(i);
+		}
+
+		DataStream ds(numElements, ints);
+
+		// cout<<"starting with "<<ds.m_numElements<<" streams"<<endl;
+
+		// for (int i=0; i<ds.numAlive(); i+=1){
+		// 	cout<<ds.m_indices[i];
+		// 	if (i<ds.numAlive()-1) cout<<",";
+		// }
+		// cout<<endl;
+
+		
+		ds.compactNaiveSumGlobal();
+
+		// for (int i=0; i<ds.numAlive(); i+=1){
+		// 	cout<<ds.m_indices[i];
+		// 	if (i<ds.numAlive()-1) cout<<",";
+		// }
+		// cout<<endl;
 	}
-
-	DataStream ds(numElements, ints);
-
-	cout<<"starting with "<<ds.m_numElements<<" streams"<<endl;
-
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
-		if (i<ds.numAlive()-1) cout<<",";
-	}
-	cout<<endl;
-
-	ds.compactNaiveSumGlobal();
-
-	for (int i=0; i<ds.numAlive(); i+=1){
-		cout<<ds.m_indices[i];
-		if (i<ds.numAlive()-1) cout<<",";
-	}
-	cout<<endl;
 }
 
 void naiveCompactGlobal(){
@@ -104,7 +108,9 @@ void naiveCompactGlobal(){
 			int toKill = rand() % ds.numAlive();
 			ds.kill(toKill);
 		}
+		//
 		ds.compactNaiveSumGlobal ();
+		//
 
 		cout<<"killing ~"<<numElements/25<<" streams, "<<ds.numAlive()<<" streams remain"<<endl;
 
@@ -141,76 +147,19 @@ void naiveSumSharedSingleBlock(){
 	cout<<endl;
 }
 
-void naiveSumSharedArbitrary(){
-	// int numElements = 34;
+void compactNaiveSumSharedArbitrary(){
+	int ne[] = {100, 1000, 10000, 100000, 1000000, 10000000};
+	for (int  i=0; i<6; i+=1){
+		int numElements = ne[i];
 
-	// dataPacket * ints = new dataPacket[numElements];
-	// for (int i=0; i<numElements; i+=1){
-	// 	ints[i] = dataPacket(i);
-	// }
-
-	// DataStream ds(numElements, ints);
-
-	// cout<<"starting with "<<numElements<<" streams"<<endl;
-
-	// int toKill = 32;
-	// ds.kill(toKill);
-
-	// dataPacket cur;
-	// ds.getData(toKill, cur);
-	// cout<<"killing "<<cur.index<<", "<<ds.numAlive()<<" streams remain"<<endl;
-
-	// // for (int i=0; i<ds.numAlive(); i+=1){
-	// 	// cout<<ds.m_indices[i];
-	// 	// if (i<ds.numAlive()-1) cout<<",";
-	// // }
-	// // cout<<endl;
-
-
-	// ds.compactNaiveSumSharedArbitrary();
-	// //ds.compactNaiveSumGlobal();
-
-	// // for (int i=0; i<ds.numAlive(); i+=1){
-	// // 	cout<<ds.m_indices[i];
-	// // 	if (i<ds.numAlive()-1) cout<<",";
-	// // }
-	// // cout<<endl;
-
-	// // for (int i=0; i<numElements/(THREADS_PER_BLOCK*2); i+=1){
-	// // 	cout<<ds.m_auxSums[i];
-	// // 	if (i<ds.numAlive()-1) cout<<",";
-	// // }
-	// // cout<<endl;
-	int numElements = 100000;
-
-	dataPacket * ints = new dataPacket[numElements];
-	for (int i=0; i<numElements; i+=1){
-		ints[i] = dataPacket(i);
-	}
-
-	DataStream ds(numElements, ints);
-
-	cout<<"starting with "<<numElements<<" streams"<<endl;
-
-	int bound = 0;
-	while(ds.numAlive () > 0){
-		for (int i=0; i<numElements/25; i+=1){
-			int toKill = rand() % ds.numAlive();
-			ds.kill(toKill);
+		dataPacket * ints = new dataPacket[numElements];
+		for (int i=0; i<numElements; i+=1){
+			ints[i] = dataPacket(i);
 		}
-		ds.compactNaiveSumSharedArbitrary ();
 
-		cout<<"killing ~"<<numElements/25<<" streams, "<<ds.numAlive()<<" streams remain"<<endl;
+		DataStream ds(numElements, ints);
 
-		ds.fetchDataFromGPU();
-
-		// for (int i=0; i<ds.numAlive(); i+=1){
-		// 	dataPacket cur;
-		// 	ds.getData(i, cur);
-		// 	cout<<cur.index;
-		// 	if (i<ds.numAlive()-1) cout<<",";
-		// }
-		cout<<endl;
+		ds.compactNaiveSumGlobal();
 	}
 }
 
@@ -355,6 +304,6 @@ int main(){
 	srand (time(NULL));
 	// naiveCompactGlobal ();
 	// naiveCompactSharedArbitrary ();
-	workEfficientArbitrary ();
+	naiveSumGlobal ();
 	return 0;
 }
