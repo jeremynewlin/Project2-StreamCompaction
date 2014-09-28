@@ -13,7 +13,9 @@ it only becomes comparable to the naive shared memory version after the array is
 needed.
 
 And here is a comparison of my scatter implementation and thrust's.  I think I'm using a slow
-thrust version of this, becuase I don't think my basic version in CUDA should be as fast as thrust.
+thrust version of this, becuase I don't think my basic version in CUDA should be as fast as thrust.  But, to be honest,
+I'm not sure how else to optimize my implementation of scatter any further.  It has 3 global memory reads that are absolutely necessary,
+and a branch.
 
 ![](https://lh3.googleusercontent.com/-smo_LiXzpgg15xhhf7EwXruEdDWJ6cN-NfNbUv0Z9F7l4qwYAyI22eZpwk9dHrYbonYsrSY9ik=w1505-h726)
 
